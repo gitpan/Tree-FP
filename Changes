@@ -6,3 +6,5 @@ Revision history for Perl extension Tree::FP.
 0.02  Wed Sep 10 16:15:00 2003
 	- updated fp_growth method
 
+0.03  Thu Sep 11 14:58:41 2003
+	- several bug fixes to fp_growth method

@@ -6,7 +6,7 @@ package Tree::FP;
 # same terms as Perl itself.
 
 
-$VERSION = '0.02';
+$VERSION = '0.03';
 # Whenever version number is increased, check for version in code comments. e.g. if current version is 0.5 going to 0.6,
 # search for 'v 0.5' within this document
 
@@ -49,6 +49,7 @@ sub new
 	my @lookup;
 	my $count = 0;
 	
+	
 	# Create header nodes from each of the items passed
 	while(my $item_name = shift)
 		{
@@ -57,9 +58,10 @@ sub new
 			{
 			return undef;
 			}
+		
 		$lookup[$count]=$item_name;
 		}
-
+	
 	my $self = {
 				header_table => \%header_table, 
 				reverse_lookup => \@lookup,
@@ -324,7 +326,6 @@ sub association_rules
 	# First call sub _fp_growth, to extract the frequent patterns. This is a slight modification of FPGROWTH algorithm.
 	unless(@patterns = $self->_fp_growth)
 		{
-		$self->reset_tree;
 		return ();
 		}
 	
@@ -498,7 +499,7 @@ sub _fp_growth
 		# If patterns array is empty, then something may have gone wrong (although not necessarily)
 		unless(scalar(@patterns))
 			{
-			$self->{err} eq "No patterns generated. FP Tree may not be fully loaded or support set too high.";
+			$self->{err} = "No patterns generated. FP Tree may not be fully loaded or support set too high.";
 			}
 		# return the patterns
 		return @patterns;
@@ -508,9 +509,6 @@ sub _fp_growth
 	# If more than one path
 	
 	my @lookup = @{$self->{reverse_lookup}};
-	
-	# As above, check for accuracy of header table
-	my $check_count = 0;
 	
 	while(my $key = pop @lookup)
 		{
@@ -623,7 +621,6 @@ sub _fp_growth
 		{
 		$self->{err} = "No patterns with minimum support of " . $self->support * 100 . "% found.";
 		}
-		
 	return @all_combos;
 	}		
 
@@ -724,7 +721,7 @@ sub combinations
 		my $item_name = shift;
 		my $parent = shift;
 		
-		# For now (v 0.02) only check that if an item name is passed that the node also has a parent. 
+		# For now (v 0.03) only check that if an item name is passed that the node also has a parent. 
 		if($item_name && !$parent)
 			{
 			return undef;
@@ -761,7 +758,7 @@ sub combinations
 		my $self = shift;
 		my $root = shift;
 		
-		# Only check to make sure that self and root are not the same.  For now (v 0.02) assume that only FP_Tree_nodes
+		# Only check to make sure that self and root are not the same.  For now (v 0.03) assume that only FP_Tree_nodes
 		# are going to be passed.
 		if($self == $root)
 			{
@@ -805,6 +802,7 @@ sub combinations
 	# Method resets the 'used' property of the node to zero, and calls itself on the sibling of the node (if one exists).
 	sub reset_used
 		{
+		no warnings;
 		my $self = shift;
 		$self->{used} = 0;
 		
