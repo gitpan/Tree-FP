@@ -6,7 +6,7 @@ package Tree::FP;
 # same terms as Perl itself.
 
 
-$VERSION = '0.03';
+$VERSION = '0.04';
 # Whenever version number is increased, check for version in code comments. e.g. if current version is 0.5 going to 0.6,
 # search for 'v 0.5' within this document
 
@@ -721,7 +721,7 @@ sub combinations
 		my $item_name = shift;
 		my $parent = shift;
 		
-		# For now (v 0.03) only check that if an item name is passed that the node also has a parent. 
+		# For now (v 0.04) only check that if an item name is passed that the node also has a parent. 
 		if($item_name && !$parent)
 			{
 			return undef;
@@ -758,7 +758,7 @@ sub combinations
 		my $self = shift;
 		my $root = shift;
 		
-		# Only check to make sure that self and root are not the same.  For now (v 0.03) assume that only FP_Tree_nodes
+		# Only check to make sure that self and root are not the same.  For now (v 0.04) assume that only FP_Tree_nodes
 		# are going to be passed.
 		if($self == $root)
 			{
@@ -1157,10 +1157,12 @@ sub combinations
 __END__
 
 =head1 NAME
+
 TREE::FP - Perl implementation of the FP-Tree
 
 =head1 SYNOPSIS
-	use Tree:FP;
+
+	use Tree::FP;
 	
 	$fptree = Tree::FP->new('a','b','c');
 	
@@ -1185,13 +1187,17 @@ Tree:FP is a Perl implmentation of the FP-Tree based association rule mining alg
 The short version is this: instead of generating a huge number of candidate sets for the apriori algorithm and requiring multiple database scans, compress information into a new data structure, a Frequent Pattern (or FP) tree, then mine the tree.
 
 =head1 VERSION
-	0.02
+
+	0.04
 
 =head1 METHODS
 
 =head2 new( LIST )
+
 The new method is called with a list of frequent items from the transactional database listed in descending support order.
 Given the following DB
+=head1
+
 	Item | Count
 	------------
 	itm1 | 2
@@ -1199,53 +1205,65 @@ Given the following DB
 	itm3 | 3
 	itm4 | 5
 	itm5 | 3
+
 The code for creating a new FP-Tree would be:
 	$fptree = Tree::FP->new('itm4','itm2','itm3','itm5','itm1');
 
 NOTE: The list can also be of integers, which is the more likely scenario for most TDBs.
-	
+
 =head2 insert_tree( LIST )
+
 This is the method used to populate the FP-Tree.  The list consists of all items for one transaction. The items need NOT be in any order. The method returns 0 (false) is an error occurred, and 1 (true) otherwise.
+
 Example:
+
 	$fptree->insert_tree('itm1','itm2','itm3');
-	
-=head2 support()
+
+
+=head2 support
+
 Returns the current minimum percentage support for the FP-tree, expressed as a decimal. 10% = 0.1
 
 =head2 set_support( FLOAT )
+
 Sets the current minimum percentage support for the FP-tree.
 
-=head2 confidence()
+=head2 confidence
+
 Returns the current minimum percentage confidence for the FP-tree, expressed as a decimal. 10% = 0.1
 NOTE: Currently this method has no effect on performance of the FP-Tree. Future versions may allow result filtering based on confidence.
 
 =head2 set_confidence( FLOAT )
+
 Sets the current minimum percentage confidence for the FP-tree.
 
-=head2 association_rules()
+=head2 association_rules
+
 Returns list of assocation rules for the FP-Tree meeting minimum support, listed in descending order of confidence.  Each element of the list is actually an FP_Tree_association_rule object with the following four methods:
+	
 	left - returns left side of association rule (a "pattern") as a list, each element of which is an item
 	right - returns right side of association rule (a "pattern") as a list, each element of which is an item
 	support - support for the rule
 	confidence - confidence for the rule
 
 Example:
+
 	@rules = $fptree->association_rules;
 	@left = $rules[0]->left;
 	@right = $rules[0]->right;
 	$support = $rules[0]->support;
 	$confidence = $rules[0]->confidence;
 
-=head2 reset_tree()
-When resetting the support level of the FP-Tree, it is necessary to call the reset_tree method to clear the previously mined patterns. This is not called from the set_support method as it is entirely possible that with a user interface, the support may be changed several times before the tree is mined. While the reset_tree method is not computationally intensive, it is not free either.
+=head2 err
 
-=head2 err()
 Returns the last error that occurred in the FP-Tree. In general, if any of the methods returns false (0 or undef), this method will provide details as to what went wrong.
 
 =head1 NOTES
+
 This package includes three other packages, namely FP_Tree_node, FP_Tree_header_node, and FP_Tree_association_rule. Outside of the context of an FP-Tree, it is not likely that they have much utility, however feel free to use these.  Also, there is a combinations function in this package that can be used for finding all combinations of elements of an array (but this must be explicitly exported).
 
 =head1 AUTHOR
+
 Martin Paczynski, nitram@cpan.org. 
 
 =head1 COPYRIGHT
