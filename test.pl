@@ -1,3 +1,7 @@
+# Developer : Martin Paczynski <nitram@cpan.org>
+# Copyright (c) 2003 Martin Paczynski.  All rights reserved.
+# Test file for package Tree::FP.
+
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
 
@@ -109,12 +113,12 @@ ok($header_node->set_sibling($tree_node)); # and one big happy family
 # Finally, test the Tree::Tree object
 ok($tree = Tree::FP->new('i2','i1','i3','i4','i5')); # creates a tree
 ok(!(@ar_ok = $tree->association_rules)); # nothing to mine so shouldn't return anything
-ok($tree->err eq "Header table node 'i1' has no count."); # make sure error message correct
+ok($tree->err eq "Support count equals zero. FP Tree not fully loaded or support level set too low."); # make sure error message correct
 ok($faulty_tree = Tree::FP->new('i2','i1','i3','i4','i5')); # just another test to toss in
 ok(!($not_tree = Tree::FP->new)); # should not create a tree
 ok($tree->insert_tree('i1','i2','i5')); # insert into tree in order
-ok(!(@ar_ok = $tree->association_rules)); # not all nodes loaded
-ok($tree->err eq "Header table node 'i3' has no count."); # error message correct
+#ok(!(@ar_ok = $tree->association_rules)); # not all nodes loaded
+#ok($tree->err eq "Header table node 'i4' has no count."); # error message correct
 ok($tree->insert_tree('i2','i4'));# insert into tree in order
 ok($tree->insert_tree('i2','i3'));# insert into tree in order
 ok($tree->insert_tree('i1','i2','i4'));# insert into tree in order
@@ -153,10 +157,13 @@ ok($tree->err eq "Confidence must be a positive value [ -0.1 ]."); # error messa
 ok(!$tree->set_confidence(1.000001)); #confidence cannot be greater than 1;
 ok($tree->err eq "Confidence cannot exceed 100% (expressed as a decimal) [ 1.000001 ]."); # error message correct
 ok($tree->set_confidence(0.2)); # Set confidence
+
+
 ok(@ar_ok = $tree->association_rules); # get association rules from tree that is ok
 ok(!(@ar_not_ok = $faulty_tree->association_rules)); # should not be able to get association rules from faulty tree;
 ok($faulty_tree->err eq "Frequency table not accurate. [6 2]"); # error message correct
 ok(@ar_ok = $tree->association_rules); # get association rules from tree that is ok again, extra work, but that's ok.
+
 
 
 my $previous_confidence = 1;
@@ -179,4 +186,5 @@ ok($previous_support >= $ar_ok[0]->support); # make sure that since we dropped t
 ok($tree->set_support(1));	# Set the support to 100%
 ok($tree->reset_tree); # reset the tree
 ok(!(@ar_ok = $tree->association_rules)); # there best not be any rules generated with this support level
-ok($tree->err eq "No patterns with minimum support of 1 found."); # make sure the error message refects this.
+ok($tree->err eq "No patterns with minimum support of 100% found."); # make sure the error message refects this.
+

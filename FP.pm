@@ -6,7 +6,7 @@ package Tree::FP;
 # same terms as Perl itself.
 
 
-$VERSION = '0.01';
+$VERSION = '0.02';
 # Whenever version number is increased, check for version in code comments. e.g. if current version is 0.5 going to 0.6,
 # search for 'v 0.5' within this document
 
@@ -46,6 +46,7 @@ sub new
 		}
 	
 	my %header_table;
+	my @lookup;
 	my $count = 0;
 	
 	# Create header nodes from each of the items passed
@@ -56,10 +57,12 @@ sub new
 			{
 			return undef;
 			}
+		$lookup[$count]=$item_name;
 		}
 
 	my $self = {
 				header_table => \%header_table, 
+				reverse_lookup => \@lookup,
 				root => FP_Tree_node->new,	# The root is a standard FP-Tree node except its item field is blank
 				lowest_rank => $count,		# Rank of the lowest ranking item in header table
 				patterns => {}, 			# Hash (ref) that will contain all patterns of the tree
@@ -80,6 +83,16 @@ sub reset_tree
 	
 	# Delete all patterns
 	$self->{patterns} = {};
+	
+	my @rlook = @{$self->{reverse_lookup}};
+	
+	for(my $c = $#rlook ; $c > 0; $c--)
+		{
+		if($self->{header_table}->{$rlook[$c]}->{sibling})
+			{
+			$self->{header_table}->{$rlook[$c]}->{sibling}->reset_used;
+			}
+		}	
 	
 	1;
 	}	
@@ -131,7 +144,7 @@ sub insert_tree
 		}
 
 	# Sort items by L order.
-	@items = sort {$self->{header_table}->{$a} <=>  $self->{header_table}->{$b}} @items;	
+	@items = sort {$self->{header_table}->{$a}->rank <=>  $self->{header_table}->{$b}->rank} @items;	
 
 	
 	# Call _tree_insert on the root node of FP_Tree. It should return a positive integer
@@ -171,7 +184,14 @@ sub _tree_insert
 		}
 	else
 		{
-		#... Otherwise:			
+		#... Otherwise:		
+		
+		# If node already has children, then increase the number of paths	
+		if($node->children)
+				{
+				$node->inc_num_path;
+				}
+		
 		# Set $next_node to be the new child node with label $item
 		$next_node = $node->add_child($item);
 		
@@ -262,6 +282,14 @@ sub set_support
 	
 	$self->{support} = $support;
 	}	
+
+####
+# Returns number of paths in the tree
+sub num_path
+	{
+	my $self = shift;
+	$self->root->num_path;
+	}
 	
 # Returns latest error message for FP-Tree.
 sub err
@@ -288,17 +316,42 @@ sub association_rules
 	{
 	my $self = shift;
 	
-	# First call sub fp_growth, to extract the frequent patterns. This is a slight modification of FPGROWTH algorithm.
-	unless($self->fp_growth)
+	my @patterns;
+	my @freq_patterns;
+	
+	$self->reset_tree;
+	
+	# First call sub _fp_growth, to extract the frequent patterns. This is a slight modification of FPGROWTH algorithm.
+	unless(@patterns = $self->_fp_growth)
 		{
+		$self->reset_tree;
 		return ();
 		}
 	
-	# Collect the maximal length frequent patterns (MLFP)
-	my @freq_patterns = grep {ref && scalar(@{$_->{pattern}}) == $self->{max_pattern_len}} %{$self->{patterns}};
+	for(@patterns)
+		{
+		@{$_->{pattern}} = sort {$self->{header_table}->{$a}->rank <=>  $self->{header_table}->{$b}->rank} @{$_->{pattern}};	
+		
+		if($self->{max_pattern_len} < scalar(@{$_->{pattern}}))
+			{
+			@freq_patterns = ();
+			$self->{max_pattern_len} = scalar(@{$_->{pattern}});
+			}
+
+		my $key = join '~', @{$_->{pattern}};
+		
+		unless($self->{patterns}->{$key})
+			{
+			if($self->{max_pattern_len} == scalar(@{$_->{pattern}}))
+				{
+				push @freq_patterns, $_;
+				}
+			$self->{patterns}->{$key} = $_;	 
+			}	
+		}
 	
 	my @association_rules;
-
+	
 	# Loop through all the MLFPs
 	for(my $c=0; $c <= $#freq_patterns; $c++)
 		{
@@ -330,7 +383,7 @@ sub association_rules
 			# Convert the complement array into string
 			my $left_str = join '~', @{$all_combos[$d]};
 				
-			# Compute confidence for association						
+			# Compute confidence for association					
 			my $confidence = $support_count /  $self->{patterns}->{$left_str}->{count};	
 
 			# Push new association rule onto @association_rules.
@@ -342,95 +395,236 @@ sub association_rules
 	# a Schwartzian Transformation named after Randal L. Schwartz. Substantial savings in computational time.)
 	@association_rules = map $_->[0], sort {$b->[1] <=> $a->[1]} map [$_, $_->confidence], @association_rules;		
 	}
+
+
 	
 # Function uses modified FPGROWTH algorithm to find Maximal Length Frequent Patterns (MLFPs)
-# The input is the FP-Tree itself.
-# Returns 1 if any pattern was found, 0 if no pattern of minimal support count was found or error occured
-sub fp_growth
+# Parameters:
+#	1. Min. support count (optional)
+# Returns an array of hash refs, with 'pattern' field being a array ref containing items in pattern and 'count' field being 
+# the support count for the pattern. Returns empty array on failure.
+# Note: This method is never called directly, only by indirectly from the asssociation_rule method or recursively from itself.
+sub _fp_growth
 	{
 	my $self = shift;
-	# Support count must be a whole number therefore, round up the for support count.
-	my $support_count = POSIX::ceil $self->{total_transactions}*$self->{support};
+	# If support count is not provided, calculate it and round up to a full transaction (i.e. not a float).
+	my $support_count = $_[0]?$_[0]:POSIX::ceil $self->{total_transactions}*$self->{support};
+	
+	# If support is set so low that support count rounds to zero on the system, exit.
+	unless($support_count)
+		{
+		$self->{err} = "Support count equals zero. FP Tree not fully loaded or support level set too low.";
+		return ();
+		}
+	
 	
 	my @all_items;
+	my @all_combos;
 	my $check_count = 0;
 	
-	# For each item in the header table...
-	foreach my $key (keys %{$self->{header_table}})
+	# If the number of paths in the tree is equal to one, simply find all the combinations (and their support count) of the 
+	# pattern encoded by the tree.
+	# This is the base case
+	if($self->num_path == 1)
 		{
-		# check that each header node is actually initialized
-		unless($self->{header_table}->{$key}->count)
+		my @rlook = @{$self->{reverse_lookup}};
+		my @patterns;
+		
+		# Used to check that header table is accurate, see below
+		my $order_check = 0;
+		
+		for(my $c = $#rlook ; $c > 0; $c--)
 			{
-			$self->{err} = "Header table node '$key' has no count.";
-			return 0;
+			# Unless the support count in the header node increases (non-strictly) as rank goes up, something is is incorrect
+			# either FP-Tree not created correctly or not fully loaded.
+			if($self->{header_table}->{$rlook[$c]}->count < $order_check)
+				{
+				$self->{err} = "Frequency table not accurate. [$check_count " . $self->{header_table}->{$rlook[$c]}->count . "]";
+				return ();
+				}
+
+			$order_check = $self->{header_table}->{$rlook[$c]}->count;
+
+			# If the support count of an item is below the min support count, no patterns it creates can meet criteria
+			if($self->{header_table}->{$rlook[$c]}->count < $support_count)
+				{
+				# check that each header node is actually initialized
+				unless($self->{header_table}->{$rlook[$c]}->count)
+					{
+					$self->{err} = "Header table node '" . $rlook[$c] . "' has no count.";
+					return ();
+					}
+				# and if it is, the simply go to next item
+				next;
+				}
+			
+			my $item_ptr = $self->{header_table}->{$rlook[$c]}->{sibling};
+			
+			# Traverse the tree sideways, examining each node with particular 'item name'
+			while($item_ptr)
+				{
+				my $l_count = $item_ptr->adj_count;
+				my @l_pattern = ($item_ptr->item_name);
+		
+				# If the node is already used up (i.e. has been 'read' as much as 'written', then proceed to the next sibling
+				unless($l_count)
+					{
+					$item_ptr = $item_ptr->{sibling};
+					next;
+					}
+		
+				# Otherwise, go up the tree, getting ancestor 'item names' until hitting the root
+				my $parent_ptr = $item_ptr;
+				while($parent_ptr = $parent_ptr->{parent})
+					{
+					if($parent_ptr->item_name)
+						{
+						$parent_ptr->inc_used($l_count);
+						push @l_pattern, $parent_ptr->item_name;
+						}
+					}
+				
+				# add the pattern created to the @patterns
+				push @patterns, {
+								pattern => \@l_pattern, 
+								count => $l_count
+								};
+				# go to next sibling
+				$item_ptr = $item_ptr->{sibling};
+				}
+	
+			}
+			
+		# If patterns array is empty, then something may have gone wrong (although not necessarily)
+		unless(scalar(@patterns))
+			{
+			$self->{err} eq "No patterns generated. FP Tree may not be fully loaded or support set too high.";
+			}
+		# return the patterns
+		return @patterns;
+		}
+	
+	
+	# If more than one path
+	
+	my @lookup = @{$self->{reverse_lookup}};
+	
+	# As above, check for accuracy of header table
+	my $check_count = 0;
+	
+	while(my $key = pop @lookup)
+		{
+		unless($check_count <= $self->{header_table}->{$key}->count)
+			{
+			$self->{err} = "Frequency table not accurate. [$check_count " . $self->{header_table}->{$key}->count . "]";
+			return ();
 			}
 		
-		# check the count. If it is less then the support count needed, move on to the next node.
+		$check_count = $self->{header_table}->{$key}->count;
+			
 		if($self->{header_table}->{$key}->count < $support_count)
 			{
+			# check that each header node is actually initialized
+			unless($self->{header_table}->{$key}->count)
+				{
+				$self->{err} = "Header table node '$key' has no count.";
+				return ();
+				}
 			next;
 			}
 		
-		# Set the rank-1 element of all_items array to the appropriate header node
-		$all_items[$self->{header_table}->{$key}->rank - 1] = $self->{header_table}->{$key};
+		# Because thing may have gotten read, get the adjusted count of the item name
+		my $adj_count = $self->{header_table}->{$key}->adj_count;
 		
-		# Add the single item pttern to the patterns hash of the FP-Tree.
-		$self->{patterns}->{$key} = {count => $self->{header_table}->{$key}->count, pattern => [$key]};
-		} 
-	
-	# If there are no items in the all_items array, then there is not even a single item length pattern that
-	# meets support criteria, therefore return 0.
-	unless(@all_items)
-		{
-		$self->{err} = "No patterns with minimum support of " . $self->{support} . " found.";
-		return 0;
-		}
-	
-	
-	# In descending order, loop through the items (this means that the count will be nostrictly ascending)
-	for(my $a=$#all_items;$a >= 0 ; $a--)
-		{	
-		# Make sure that the above ascertion is true. If not, return 0.	
-		if($check_count > $all_items[$a]->count)
-			{
-			$self->{err} = "Frequency table not accurate. [$check_count " . $all_items[$a]->count . "]";
-			return 0;
-			}
-		
-		# Set check_count to be the the current items count.
-		$check_count = $all_items[$a]->count;
-		
-		# Get a hash (ref) containing all the patterns formed by the current 'item name'
-		my $pattern_hash = $self->get_patterns($all_items[$a]->item_name);
+		# get the prefixes for this item name
+		my @prefixes = $self->get_prefixes($self->{header_table}->{$key}->item_name);
 
-		# If pattern hash is undefined or empty, then either $all_items[$a]->item_name was null, or (more likely) the
-		# FP-Tree had not been loaded with the full compliment of data, i.e. transactions that contained #item name#
-		# had not inserted into the FP-Tree. In either case, association rules would not be valid so return 0.
-		unless($pattern_hash)
+		# Create a temporary local frequency table for the item names found in the prefixes
+		my %loc_freq_table = ();
+		for(my $a=0; $a <= $#prefixes; $a++)
 			{
-			$self->{err} = "Item '". $all_items[$a]->item_name . "' created no patterns. FP-Tree may not have been loaded with complete data set.";
-			return 0;
+			for(@{$prefixes[$a]->{prefix}})
+				{
+				$loc_freq_table{$_} += $prefixes[$a]->{support};
+				}
+			}
+			
+		# Get the item name found in the prefixes in order
+		my @ordered = sort { $loc_freq_table{$b} <=> $loc_freq_table{$a} } keys %loc_freq_table;		
+		# And create a new conditional FP-Tree
+		my $conditional_tree = Tree::FP->new(@ordered);
+		
+		# If there where prefixes yet there is no conditional tree, something is wrong so exit
+		if(@ordered && !$conditional_tree)
+			{
+			$self->{err} = "Conditional FP-Tree could not be created.";
+			return ();
 			}
 		
-		# For each of these patterns..
-		foreach my $key (keys %{ $pattern_hash })
-			{
-			# If the pattern is at or above the minimum support count
-			unless($pattern_hash->{$key}->{count} < $support_count)
+		# Otherwise, go through the prefixes and load them into the conditional FP-Tree
+		for(my $a=0; $a <= $#prefixes; $a++)
+			{			
+			for(my $b=0; $b < $prefixes[$a]->{support}; $b++)
 				{
-				# Add pattern to the pattern hash for the FP-Tree
-				$self->{patterns}->{$key} = $pattern_hash->{$key};
-				
-				# And see if the pattern has a length greater than any other pattern seen so far. If so, adjust the 
-				# FP-Tree's max pattern length property.
-				my $pat_len = scalar(@{$self->{patterns}->{$key}->{pattern}});
-				$self->{max_pattern_len} = $self->{max_pattern_len} < $pat_len?$pat_len:$self->{max_pattern_len};
+				$conditional_tree->insert_tree(@{$prefixes[$a]->{prefix}});
+				}
+			} 
+		
+		my @conditional_patterns;
+		my @cond_patterns_plus_item;
+		
+		# If there is a conditional FP-Tree, then...
+		if($conditional_tree)
+			{
+			# Get the patterns by calling fp_growth on it (this is the recursive step
+			@conditional_patterns = $conditional_tree->_fp_growth($support_count);
+			
+			# If no patterns then set the error  of this tree to the error of the conditional tree
+			#### Check logic flow
+			unless(@conditional_patterns)
+				{
+				$self->{err} = $conditional_tree->err;
+				next;
 				}
 			
+			# Add this item name to each of the conditional patterns
+			for(my $d=0; $d <= $#conditional_patterns; $d++)
+				{
+				# Get all the combinations of a given related pattern
+				my @related_patterns = &combinations(@{$conditional_patterns[$d]->{pattern}});
+				# Then for each combination, append this item
+				for(my $e=0; $e <= $#related_patterns; $e++)
+					{
+					my @l_arr = @{$related_patterns[$e]};
+		
+					for(my $f = 0; $f <= $#l_arr; $f++)
+						{
+						push @cond_patterns_plus_item, {pattern => [$key, @{$l_arr[$f]}], count => $conditional_patterns[$d]->{count}};
+						}
+					}
+				
+				push @{$conditional_patterns[$d]->{pattern}}, $key;
+				}
+			# Push all this onto the 
+			push @conditional_patterns, @cond_patterns_plus_item;
+			push @conditional_patterns, {pattern=>[$key], count=>$self->{header_table}->{$key}->count};
 			}
+		else
+			{
+			@conditional_patterns = ({pattern=>[$key], count=>$self->{header_table}->{$key}->count});
+			}
+					
+		push @all_combos, @conditional_patterns;
 		}
-	# If we got to this point, everything when well so return 1.
-	1;
+		
+	# If no patterns or combinations of patterns where formed, then set the error code BUT do nothing else
+	# since this might be a deep recursion and patterns may exist higher up
+	unless(scalar(@all_combos))
+		{
+		$self->{err} = "No patterns with minimum support of " . $self->support * 100 . "% found.";
+		}
+		
+	return @all_combos;
 	}		
 
 
@@ -439,7 +633,7 @@ sub fp_growth
 # 	1. 'item name'
 # Returns:
 #	Hash reference containing all patterns generated from 'item name' if successful, undefined or empty if something went wrong.
-sub get_patterns
+sub get_prefixes
 	{
 	my $self = shift;
 	my $item_name = shift;
@@ -450,11 +644,12 @@ sub get_patterns
 		return undef;
 		}
 	
-	# Initialized hash ref that will contain all the patterns discovered for this item name
-	my $pattern_hash = {};	
 	
 	# Get the pointer to the first node in the FP-Tree with label #item name# from the header table.
 	my $item_ptr = $self->{header_table}->{$item_name}->{sibling};
+	
+	
+	my @conditional_tree_load;
 	
 	# While the item pointer continues to point to a valid FP-Tree node..
 	while($item_ptr)
@@ -462,58 +657,21 @@ sub get_patterns
 		# Create an array of items, beginning with the current item, followed by the prefix
 		# OF THIS NODE. In other words, only get the items between this node and the root node.
 		my @combo = (
-			$item_ptr->item_name, 
 			$item_ptr->get_prefix($self->root) # This is the get_prefix method of the FP_Tree_node object, see below for usage.
 			);
-		
-		# Store the patterns formed from this item set in the pattern hash.				
-		&store_combinations($pattern_hash, $item_ptr->count, @combo);
+		if(@combo)
+			{
+			push @conditional_tree_load, {prefix => \@combo, support => $item_ptr->count};
+			}
 		
 		# Set the item pointer to be the next node of the name item name
 		$item_ptr = $item_ptr->{sibling};
 		}
 	
-	$pattern_hash;
+	return @conditional_tree_load;
+
 	}
 
-
-# Function stores all combinations of given pattern into hash ref.
-# Parameters
-# 	1. Hash ref used for storage
-#	2. The number of times this complete pattern was encountered
-#	3. An array containing the elements of the pattern, starting with the suffix.
-# Returns
-#	Function does not return any value of importance, all work is done on the hash ref.
-sub store_combinations
-	{
-	my $combo_hash = shift;
-	my $combo_num = shift;
-	my $suffix = $_[0];
-	
-	# Get all the combinations for this pattern. Make sure to only get those that start off with the suffix.
-	my @combos = grep {$_->[0] eq $suffix} @{&combinations(@_)};
-
-	# For each combo pattern
-	foreach(@combos)
-		{
-		# Join the array with '~' to form string representation of pattern.
-		my $pattern = join '~', @$_;
-	
-		# If the hash already contains this pattern..
-		if($combo_hash->{$pattern})
-			{
-			# ... then increment the 'count' field of the pattern.
-			$combo_hash->{$pattern}->{count} += $combo_num;
-			}
-		else
-			{
-			# ... otherwise, set the 'pattern' field of the storing hash ref to be a hash ref with field count (containing count)
-			# and pattern (containing ref to array containing the individual items of the pattern.
-			$combo_hash->{$pattern} = {count => $combo_num, pattern => $_};
-			}
-		}	
-	}
-	
 	
 # Function finds all combinations of a given pattern.
 # Parameters
@@ -566,7 +724,7 @@ sub combinations
 		my $item_name = shift;
 		my $parent = shift;
 		
-		# For now (v 0.01) only check that if an item name is passed that the node also has a parent. 
+		# For now (v 0.02) only check that if an item name is passed that the node also has a parent. 
 		if($item_name && !$parent)
 			{
 			return undef;
@@ -578,6 +736,7 @@ sub combinations
 					sibling => undef, # This is a pointer to the next FP_Tree_node with the same item name label.
 					child_nodes => {}, # Hash ref to all child nodes of this node.
 					count => 1, # Number of times this node has been traversed. Creation counts as one traversal.
+					num_path => 1, #### Number of paths
 					used => 0, # Number of times this node has been read.
 					err => '' # Stores any error messages related to this node.				
 					};
@@ -602,7 +761,7 @@ sub combinations
 		my $self = shift;
 		my $root = shift;
 		
-		# Only check to make sure that self and root are not the same.  For now (v 0.01) assume that only FP_Tree_nodes
+		# Only check to make sure that self and root are not the same.  For now (v 0.02) assume that only FP_Tree_nodes
 		# are going to be passed.
 		if($self == $root)
 			{
@@ -776,6 +935,30 @@ sub combinations
 		++$self->{count};
 		}
 		
+	
+	#####
+	# Returns the number of paths starting at this node	
+	sub num_path
+		{
+		my $self = shift;
+		$self->{num_path};
+		}	
+	#####
+	# Increases number of paths starting at node, propigates upward to root (technically, does not check for root, but last ancestor).
+	sub inc_num_path
+		{
+		my $self = shift;
+		my $affected_count = 1;
+				
+		$self->{num_path}++;
+		if($self->{parent})
+			{
+			$affected_count += $self->{parent}->inc_num_path;
+			}
+			
+		$affected_count;
+		}
+		
 	# Returns the node's error string
 	sub err
 		{
@@ -883,6 +1066,21 @@ sub combinations
 		my $self = shift;
 		$self->{count};
 		}
+		
+	sub adj_count
+		{
+		my $self = shift;
+		my $adj_count = 0;
+		
+		my $item_ptr = $self;
+		
+		while($item_ptr = $item_ptr->{sibling})
+			{
+			$adj_count += $item_ptr->adj_count;
+			}
+		$adj_count;
+		
+		}
 }
 
 # The following is an FP_Tree_association_rule object used for creating/storing association rules generated from FPGROWTH
@@ -988,6 +1186,9 @@ Tree:FP is a Perl implmentation of the FP-Tree based association rule mining alg
 
 The short version is this: instead of generating a huge number of candidate sets for the apriori algorithm and requiring multiple database scans, compress information into a new data structure, a Frequent Pattern (or FP) tree, then mine the tree.
 
+=head1 VERSION
+	0.02
+
 =head1 METHODS
 
 =head2 new( LIST )
@@ -1058,3 +1259,4 @@ implied warranty.  It may be used, redistributed and/or modified under the
 same terms as Perl itself.
 
 =cut
+

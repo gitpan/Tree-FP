@@ -1,16 +1,12 @@
-Tree/FP version 0.01
+Tree/FP version 0.02
 ====================
+Tree::FP is an implementation of a FP-Tree data structure in Perl.
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+PREREQUISITES
 
-A README file is required for CPAN modules since CPAN extracts the
-README file from a module distribution so that people browsing the
-archive can use it get an idea of the modules uses. It is usually a
-good idea to provide version information here so that people can
-decide whether fixes for the module are worth downloading.
+Module currently only tested on 5.6 and up, although should work with earlier version of Perl 5.x.
+
+No non-standard modules required, POSIX is as fancy as it gets.
 
 INSTALLATION
 
@@ -21,15 +17,24 @@ To install this module type the following:
    make test
    make install
 
-DEPENDENCIES
+DOCUMENTATION
 
-This module requires these other modules and libraries:
+See FP.pm for POD-formatted documentation.
+POD is readable with the 'perldoc' utility.
 
-  blah blah blah
+SUPPORT
 
-COPYRIGHT AND LICENCE
+Questions, bug reports, etc. should be sent to me at nitram@cpan.org
 
-Put the correct copyright and licence information here.
+AVAILABILITY
 
-Copyright (C) 2003 A. U. Thor blah blah blah
+The latest version of Tree::FP is available from the
+Comprehensive Perl Archive Network (CPAN).  Visit
+<http://www.perl.com/CPAN/> to find a CPAN site near you.
+
+COPYRIGHT
+Copyright (c) 2003 Martin Paczynski <nitram@cpan.org>.  All rights reserved.
+This package is free software and is provided "as is" without express or
+implied warranty.  It may be used, redistributed and/or modified under the
+same terms as Perl itself.
 
